@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- pdf.js Library (v3.11.174) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+
+</head>
+
+<body class="m-0 p-0 overflow-hidden">
+    <!-- トップメニュー画面 -->
+    <div id="menu-screen" class="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8">
+        <div class="max-w-md w-full bg-white rounded-lg shadow-xl p-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-8">PDF Viewer</h1>
+            <div class="space-y-4">
+                <label for="file-input" class="block">
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-blue-500 transition-colors cursor-pointer">
+                        <div class="text-gray-500 mb-2">
+                            <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                        </div>
+                        <p class="text-lg font-medium text-gray-700">PDFファイルを選択</p>
+                        <p class="text-sm text-gray-500 mt-1">またはドラッグ＆ドロップ</p>
+                    </div>
+                    <input type="file" id="file-input" accept="application/pdf" class="hidden">
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- PDFビュー画面 -->
+    <div id="pdf-screen" class="hidden min-h-screen bg-gray-100">
+        <!-- 戻るボタン -->
+        <button id="back-button" class="fixed top-4 left-4 z-50 bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+            戻る
+        </button>
+
+        <!-- PDF表示エリア -->
+        <div id="pdf-container" class="fixed top-0 left-0 w-screen h-screen bg-gray-100 overflow-y-auto overflow-x-hidden">
+            <div id="pdf-pages" class="flex flex-col items-center py-8"></div>
+        </div>
+
+        <!-- ページ番号表示 -->
+        <div id="page-indicator" class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-white/90 px-4 py-2 rounded-lg shadow-lg z-10">
+            <span class="text-gray-700 font-medium text-sm">
+                ページ: <span id="page-num">0</span> / <span id="page-count">0</span>
+            </span>
+        </div>
+
+        <!-- ローディング・エラー表示 -->
+        <div id="status-message" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-gray-500 bg-white px-4 py-2 rounded-lg shadow-lg hidden">
+            PDFを読み込み中...
+        </div>
+    </div>
+
+    <script>
+        // pdf.js のワーカーパスを設定
+        // window.pdfjsLib は CDN からロードされます
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        if (pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+
+        // DOM要素
+        const menuScreen = document.getElementById('menu-screen');
+        const pdfScreen = document.getElementById('pdf-screen');
+        const fileInput = document.getElementById('file-input');
+        const backButton = document.getElementById('back-button');
+        const pdfContainer = document.getElementById('pdf-container');
+        const pdfPages = document.getElementById('pdf-pages');
+        const pageIndicator = document.getElementById('page-indicator');
+        const pageNumSpan = document.getElementById('page-num');
+        const pageCountSpan = document.getElementById('page-count');
+        const statusMessage = document.getElementById('status-message');
+
+        // アプリケーションの状態
+        let pdfDoc = null;
+        let currentPageNum = 1;
+        let pageRendering = false;
+        let pageNumPending = null;
+        let currentScale = 1.0; // PDFの表示倍率（動的に計算）
+        let pageCanvases = []; // 各ページのキャンバス要素を保持
+        let pageHeights = []; // 各ページの高さを保持
+
+        /**
+         * ウィンドウサイズに基づいて最適なスケールを計算する
+         * @param {Object} page - PDFページオブジェクト
+         * @returns {number} 最適なスケール値
+         */
+        function calculateOptimalScale(page) {
+            const container = document.getElementById('pdf-container');
+            const containerWidth = container.clientWidth - 40; // パディングを考慮
+            const containerHeight = container.clientHeight - 40; // パディングを考慮
+
+            const viewport = page.getViewport({ scale: 1.0 });
+            const scaleX = containerWidth / viewport.width;
+            const scaleY = containerHeight / viewport.height;
+
+            // コンテナに収まる最大スケールを使用（アスペクト比を維持）
+            return Math.min(scaleX, scaleY, 2.0); // 最大2倍まで
+        }
+
+        /**
+         * すべてのページを連続してレンダリングする
+         */
+        async function renderAllPages() {
+            pageRendering = true;
+            statusMessage.textContent = 'PDFを読み込み中...';
+            statusMessage.classList.remove('hidden');
+
+            try {
+                // 既存のページをクリア
+                pdfPages.innerHTML = '';
+                pageCanvases = [];
+                pageHeights = [];
+
+                // 各ページをレンダリング
+                for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                    const page = await pdfDoc.getPage(pageNum);
+
+                    // 最適なスケールを計算
+                    currentScale = calculateOptimalScale(page);
+                    const viewport = page.getViewport({ scale: currentScale });
+
+                    // 新しいキャンバスを作成
+                    const canvas = document.createElement('canvas');
+                    canvas.className = 'shadow-lg rounded-lg mb-4';
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    const canvasContext = canvas.getContext('2d');
+
+                    // ページをCanvasにレンダリング
+                    const renderContext = {
+                        canvasContext: canvasContext,
+                        viewport: viewport
+                    };
+
+                    const renderTask = page.render(renderContext);
+                    await renderTask.promise;
+
+                    // ページをコンテナに追加
+                    pdfPages.appendChild(canvas);
+                    pageCanvases.push(canvas);
+                    pageHeights.push(viewport.height);
+
+                    // 進捗表示を更新
+                    statusMessage.textContent = `${pageNum}/${pdfDoc.numPages}ページ目を読み込み中...`;
+                }
+
+                // レンダリング完了
+                pageRendering = false;
+                statusMessage.classList.add('hidden');
+
+                // スクロールイベントを設定
+                setupScrollTracking();
+
+            } catch (error) {
+                console.error('ページのレンダリングに失敗:', error);
+                statusMessage.textContent = `PDFのレンダリングエラー: ${error.message}`;
+                pageRendering = false;
+            }
+        }
+
+        /**
+         * スクロール位置に基づいて現在のページ番号を更新する
+         */
+        function updateCurrentPageFromScroll() {
+            const scrollTop = pdfContainer.scrollTop;
+            const containerHeight = pdfContainer.clientHeight;
+
+            let accumulatedHeight = 0;
+            let currentPage = 1;
+
+            for (let i = 0; i < pageHeights.length; i++) {
+                accumulatedHeight += pageHeights[i] + 16; // 16pxはmargin-bottom
+
+                // スクロール位置がこのページの中央付近にある場合
+                if (scrollTop + containerHeight / 2 < accumulatedHeight) {
+                    currentPage = i + 1;
+                    break;
+                }
+            }
+
+            // 最後のページの場合
+            if (scrollTop + containerHeight / 2 >= accumulatedHeight) {
+                currentPage = pageHeights.length;
+            }
+
+            if (currentPage !== currentPageNum) {
+                currentPageNum = currentPage;
+                pageNumSpan.textContent = currentPageNum;
+            }
+        }
+
+        /**
+         * スクロール追跡を設定する
+         */
+        function setupScrollTracking() {
+            pdfContainer.addEventListener('scroll', updateCurrentPageFromScroll);
+        }
+
+
+        /**
+         * ビューを切り替える
+         * @param {string} view - 'menu' または 'pdf'
+         */
+        function switchView(view) {
+            if (view === 'menu') {
+                menuScreen.classList.remove('hidden');
+                pdfScreen.classList.add('hidden');
+            } else if (view === 'pdf') {
+                menuScreen.classList.add('hidden');
+                pdfScreen.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * PDFファイルをロードして表示する
+         * @param {File} file - 選択されたPDFファイル
+         */
+        async function loadPdf(file) {
+            const fileReader = new FileReader();
+
+            fileReader.onload = async function () {
+                const typedarray = new Uint8Array(this.result);
+                statusMessage.textContent = 'PDFを読み込み中...';
+                statusMessage.classList.remove('hidden');
+
+                try {
+                    const loadingTask = pdfjsLib.getDocument(typedarray);
+                    pdfDoc = await loadingTask.promise;
+
+                    statusMessage.classList.add('hidden'); // 読み込み完了
+
+                    const totalPages = pdfDoc.numPages;
+                    pageCountSpan.textContent = totalPages;
+
+                    // PDFビューに切り替え
+                    switchView('pdf');
+
+                    // すべてのページをレンダリング
+                    await renderAllPages();
+
+                    // ページインジケーターを表示
+                    pageIndicator.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error('PDFの読み込みに失敗:', error);
+                    statusMessage.textContent = `PDFの読み込みエラー: ${error.message}`;
+                    statusMessage.classList.remove('hidden');
+                    controls.classList.add('hidden');
+                }
+            };
+
+            fileReader.readAsArrayBuffer(file);
+        }
+
+        // --- イベントリスナー ---
+
+        // ファイルが選択された時
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                loadPdf(file);
+            } else if (file) {
+                alert('PDFファイルを選択してください。');
+            }
+        });
+
+        // 戻るボタン
+        backButton.addEventListener('click', () => {
+            // PDFビューをクリア
+            pdfDoc = null;
+            pdfPages.innerHTML = '';
+            pageCanvases = [];
+            pageHeights = [];
+            pageIndicator.classList.add('hidden');
+            pageNumSpan.textContent = '0';
+            pageCountSpan.textContent = '0';
+            statusMessage.classList.add('hidden');
+
+            // メニューに戻る
+            switchView('menu');
+        });
+
+        // ウィンドウリサイズイベント
+        window.addEventListener('resize', () => {
+            if (pdfDoc && currentPageNum > 0) {
+                // 現在のページを再レンダリングしてスケールを調整
+                renderPage(currentPageNum);
+            }
+        });
+
+    </script>
+
+</body>
+
+</html>
