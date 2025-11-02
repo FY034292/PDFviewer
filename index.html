@@ -4,63 +4,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Viewer (Vue.js)</title>
-    <!-- Tailwind CSS CDN -->
+    <title>PDF Viewer (Vue.js) - Fullscreen Scroll</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- pdf.js Library (v3.11.174) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
-    <!-- Vue 3 CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        #app[v-cloak] {
+            display: none;
+        }
+
+        .fade-enter-active,
+        .fade-leave-active {
+            transition: opacity 0.3s ease;
+        }
+
+        .fade-enter-from,
+        .fade-leave-to {
+            opacity: 0;
+        }
+    </style>
 </head>
 
-<body class="m-0 p-0 overflow-hidden">
+<body class="m-0 p-0 overflow-hidden font-sans antialiased">
 
-    <div id="app" class="min-h-screen">
+    <div id="app" v-cloak class="min-h-screen">
 
-        <!-- トップメニュー画面 (Vue) -->
-        <transition enter-active-class="transition-opacity duration-300" leave-active-class="transition-opacity duration-300" enter-from-class="opacity-0" leave-to-class="opacity-0">
+
+        <!-- メニュービュー -->
+        <transition name="fade">
             <div v-if="currentView === 'menu'"
-                class="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8"
-                @drop.prevent="handleDrop" @dragover.prevent="handleDragOver">
+                class="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-8">
 
                 <div class="max-w-md w-full bg-white rounded-lg shadow-xl p-8 text-center">
-                    <h1 class="text-3xl font-bold text-gray-800 mb-8">PDF Viewer (Vue.js)</h1>
+                    <h1 class="text-3xl font-bold text-gray-800 mb-8">PDF Viewer</h1>
+
+                    <!-- エラーメッセージ -->
+                    <div v-if="errorMessage"
+                        class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg" role="alert">
+                        <p>{{ errorMessage }}</p>
+                    </div>
+
                     <div class="space-y-4">
-                        <label for="file-input" class="block">
-                            <div
-                                class="border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-blue-500 transition-colors cursor-pointer">
-                                <div class="text-gray-500 mb-2">
-                                    <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
-                                        </path>
-                                    </svg>
-                                </div>
-                                <p class="text-lg font-medium text-gray-700">PDFファイルを選択</p>
-                                <p class="text-sm text-gray-500 mt-1">またはドラッグ＆ドロップ</p>
+                        <label for="file-input"
+                            class="block border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-blue-500 transition-colors cursor-pointer">
+                            <div class="text-gray-500 mb-2">
+                                <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                                    </path>
+                                </svg>
                             </div>
+                            <p class="text-lg font-medium text-gray-700">PDFファイルを選択</p>
                             <input type="file" id="file-input" accept="application/pdf" class="hidden"
                                 @change="handleFileChange">
                         </label>
                     </div>
                 </div>
 
-                <!-- メニュー画面用のステータスメッセージ -->
-                <div v-if="isLoading && statusText"
-                    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-gray-500 bg-white px-4 py-2 rounded-lg shadow-lg">
-                    {{ statusText }}
-                </div>
             </div>
         </transition>
 
-        <!-- PDFビュー画面 (Vue) -->
-        <transition enter-active-class="transition-opacity duration-300" leave-active-class="transition-opacity duration-300" enter-from-class="opacity-0" leave-to-class="opacity-0">
-            <div v-if="currentView === 'pdf'" class="min-h-screen bg-gray-100">
-                <!-- 戻るボタン -->
+        <!-- PDFビュー (全画面スクロール) -->
+        <transition name="fade">
+            <div v-if="currentView === 'pdf'" class="min-h-screen bg-gray-200">
+
+                <!-- オーバーレイUI: 戻るボタン -->
                 <button @click="goBackToMenu"
-                    class="fixed top-4 left-4 z-50 bg-white hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center gap-2">
+                    class="fixed top-4 left-4 z-50 bg-white hover:bg-gray-100 text-gray-800 font-medium py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center gap-2">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7">
                         </path>
@@ -68,271 +77,85 @@
                     戻る
                 </button>
 
-                <!-- PDF表示エリア -->
-                <div ref="pdfContainerRef"
-                    class="fixed top-0 left-0 w-screen h-screen bg-gray-100 overflow-y-auto overflow-x-hidden">
-                    <div ref="pdfPagesRef" class="flex flex-col items-center py-8"></div>
+                <!-- PDF表示コンテナ (全画面) -->
+                <div class="fixed top-0 left-0 w-screen h-screen bg-gray-200 overflow-auto">
+                    <iframe v-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-0"></iframe>
                 </div>
 
-                <!-- ページ番号表示 -->
-                <div v-if="!isLoading && totalPages > 0"
-                    class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-white/90 px-4 py-2 rounded-lg shadow-lg z-10">
-                    <span class="text-gray-700 font-medium text-sm">
-                        ページ: <span id="page-num">{{ currentPageNum }}</span> / <span id="page-count">{{ totalPages
-                            }}</span>
-                    </span>
-                </div>
-
-                <!-- ローディング・エラー表示 -->
-                <div v-if="isLoading"
-                    class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-gray-500 bg-white px-4 py-2 rounded-lg shadow-lg z-20">
-                    {{ statusText }}
-                </div>
             </div>
         </transition>
 
     </div>
 
     <script>
-        const { createApp, ref, shallowRef, onMounted, onUnmounted, nextTick } = Vue;
+        const { createApp, ref, onMounted, onUnmounted } = Vue;
 
         createApp({
             setup() {
-                // pdf.js のワーカーパスを設定
-                const pdfjsLib = window['pdfjs-dist/build/pdf'];
-                if (pdfjsLib) {
-                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-                }
-
                 const currentView = ref('menu');
-                // pdf.jsオブジェクトはVueのリアクティブ監視対象外にするため shallowRef を使用
-                const pdfDoc = shallowRef(null);
-                const currentPageNum = ref(0);
-                const totalPages = ref(0);
-                const pageHeights = ref([]);
-                const statusText = ref('');
+                const pdfUrl = ref(null);
+
                 const isLoading = ref(false);
+                const errorMessage = ref(null);
 
-                const pdfContainerRef = ref(null);
-                const pdfPagesRef = ref(null);
-
-                // ページサイズから最適なスケールを計算
-                function calculateOptimalScale(page) {
-                    const container = pdfContainerRef.value;
-                    if (!container) return 1.0;
-
-                    const containerWidth = container.clientWidth - 40; // 左右パディング考慮
-                    const viewport = page.getViewport({ scale: 1.0 });
-                    const baseScale = containerWidth / viewport.width;
-                    const devicePixelRatio = window.devicePixelRatio || 1.0;
-                    const scale = baseScale * devicePixelRatio;
-                    return Math.min(scale, 4.0); // 最大4倍まで（高解像度化）
-                }
-
-                // 全ページをレンダリング
-                async function renderAllPages() {
-                    if (!pdfDoc.value) return;
-
+                async function loadPdf(file) {
                     isLoading.value = true;
-                    statusText.value = 'PDFを読み込み中...';
-                    await nextTick();
-
-                    const container = pdfPagesRef.value;
-                    if (!container) {
-                        console.error("pdfPagesRef が見つかりません。");
-                        isLoading.value = false;
-                        return;
-                    }
+                    errorMessage.value = null; // エラーをリセット
 
                     try {
-                        container.innerHTML = '';
-                        const newPageHeights = [];
-
-                        const pdfContainer = pdfContainerRef.value;
-                        const containerWidth = pdfContainer.clientWidth - 40;
-
-                        for (let pageNum = 1; pageNum <= pdfDoc.value.numPages; pageNum++) {
-                            statusText.value = `${pageNum}/${totalPages.value}ページ目を読み込み中...`;
-
-                            const page = await pdfDoc.value.getPage(pageNum);
-                            const scale = calculateOptimalScale(page);
-                            const viewport = page.getViewport({ scale: scale });
-
-                            const canvas = document.createElement('canvas');
-                            canvas.className = 'shadow-lg rounded-lg mb-4';
-                            canvas.width = viewport.width;
-                            canvas.height = viewport.height;
-
-                            const cssHeight = (viewport.height / viewport.width) * containerWidth;
-                            canvas.style.width = `${containerWidth}px`;
-                            canvas.style.height = `${cssHeight}px`;
-
-                            const canvasContext = canvas.getContext('2d');
-
-                            const renderContext = {
-                                canvasContext: canvasContext,
-                                viewport: viewport
-                            };
-                            await page.render(renderContext).promise;
-
-                            container.appendChild(canvas);
-                            newPageHeights.push(cssHeight);
-                        }
-
-                        pageHeights.value = newPageHeights;
-                        isLoading.value = false;
-                        statusText.value = '';
-                        currentPageNum.value = 1;
-
-                        if (pdfContainerRef.value) {
-                            pdfContainerRef.value.addEventListener('scroll', updateCurrentPageFromScroll);
-                        }
-
+                        const url = URL.createObjectURL(file);
+                        pdfUrl.value = url;
+                        currentView.value = 'pdf';
                     } catch (error) {
-                        console.error('ページのレンダリングに失敗:', error);
-                        statusText.value = `PDFのレンダリングエラー: ${error.message}`;
+                        console.error('PDFの読み込みエラー:', error);
+                        errorMessage.value = 'PDFの読み込みに失敗しました。ファイルが破損しているか、サポートされていない形式の可能性があります。';
+                        currentView.value = 'menu';
+                    } finally {
                         isLoading.value = false;
                     }
                 }
 
-                // スクロール位置から現在のページ番号を更新
-                function updateCurrentPageFromScroll() {
-                    const container = pdfContainerRef.value;
-                    if (!container || pageHeights.value.length === 0) return;
-
-                    const scrollTop = container.scrollTop;
-                    const containerHeight = container.clientHeight;
-                    const scrollCenter = scrollTop + containerHeight / 2;
-
-                    let accumulatedHeight = 0;
-                    let currentPage = 1;
-
-                    for (let i = 0; i < pageHeights.value.length; i++) {
-                        const pageTop = accumulatedHeight;
-                        const pageBottom = pageTop + pageHeights.value[i] + 16; // 16px は mb-4 のマージン
-
-                        if (scrollCenter >= pageTop && scrollCenter < pageBottom) {
-                            currentPage = i + 1;
-                            break;
-                        }
-
-                        if (i === pageHeights.value.length - 1 && scrollCenter >= pageBottom) {
-                            currentPage = pageHeights.value.length;
-                            break;
-                        }
-                        accumulatedHeight = pageBottom;
+                    function handleFileChange(e) {
+                        const file = e.target.files[0];
+                        handleFile(file);
+                        e.target.value = null;
                     }
-                    currentPageNum.value = currentPage;
-                }
 
-                // PDFファイルを読み込む
-                async function loadPdf(file) {
-                    const fileReader = new FileReader();
-
-                    fileReader.onload = async function () {
-                        const typedarray = new Uint8Array(this.result);
-                        isLoading.value = true;
-                        statusText.value = 'PDFを読み込み中...';
-
-                        try {
-                            const loadingTask = pdfjsLib.getDocument(typedarray);
-                            pdfDoc.value = await loadingTask.promise;
-                            totalPages.value = pdfDoc.value.numPages;
-                            currentView.value = 'pdf';
-                            await renderAllPages();
-
-                        } catch (error) {
-                            console.error('PDFの読み込みに失敗:', error);
-                            statusText.value = `PDFの読み込みエラー: ${error.message}`;
-                            isLoading.value = false;
+                    function handleFile(file) {
+                        if (!file) return;
+                        if (file.type !== 'application/pdf') {
+                            errorMessage.value = 'PDFファイルを選択してください。';
+                            return;
                         }
-                    };
-                    fileReader.readAsArrayBuffer(file);
-                }
-
-                // ファイル入力ハンドラ
-                function handleFileChange(e) {
-                    const file = e.target.files[0];
-                    handleFile(file);
-                }
-
-                // ドロップハンドラ
-                function handleDrop(e) {
-                    const file = e.dataTransfer.files[0];
-                    handleFile(file);
-                }
-
-                // ファイル処理共通ロジック
-                function handleFile(file) {
-                    if (file && file.type === 'application/pdf') {
                         loadPdf(file);
-                    } else if (file) {
-                        statusText.value = 'PDFファイルを選択してください。';
-                        isLoading.value = true;
-                        setTimeout(() => {
-                            isLoading.value = false;
-                            statusText.value = '';
-                        }, 2000);
                     }
+
+                    function goBackToMenu() {
+                        if (pdfUrl.value) {
+                            URL.revokeObjectURL(pdfUrl.value);
+                            pdfUrl.value = null;
+                        }
+                        errorMessage.value = null;
+                        currentView.value = 'menu';
+                    }
+
+                    onUnmounted(() => {
+                        if (pdfUrl.value) {
+                            URL.revokeObjectURL(pdfUrl.value);
+                        }
+                    });
+
+                    return {
+                        currentView,
+                        pdfUrl,
+                        isLoading,
+                        errorMessage,
+
+                        handleFileChange,
+                        goBackToMenu,
+                    };
                 }
-
-                // ドラッグオーバーハンドラ
-                function handleDragOver(e) {
-                    e.preventDefault();
-                }
-
-                // メニューに戻る
-                function goBackToMenu() {
-                    pdfDoc.value = null;
-                    pageHeights.value = [];
-                    totalPages.value = 0;
-                    currentPageNum.value = 0;
-                    isLoading.value = false;
-                    statusText.value = '';
-
-                    if (pdfContainerRef.value) {
-                        pdfContainerRef.value.removeEventListener('scroll', updateCurrentPageFromScroll);
-                    }
-                    if (pdfPagesRef.value) {
-                        pdfPagesRef.value.innerHTML = '';
-                    }
-                    currentView.value = 'menu';
-                }
-
-                // ウィンドウリサイズハンドラ
-                function handleResize() {
-                    if (currentView.value === 'pdf' && pdfDoc.value) {
-                        renderAllPages();
-                    }
-                }
-
-                // ライフサイクルフック
-                onMounted(() => {
-                    window.addEventListener('resize', handleResize);
-                });
-
-                onUnmounted(() => {
-                    window.removeEventListener('resize', handleResize);
-                    if (pdfContainerRef.value) {
-                        pdfContainerRef.value.removeEventListener('scroll', updateCurrentPageFromScroll);
-                    }
-                });
-
-                return {
-                    currentView,
-                    currentPageNum,
-                    totalPages,
-                    statusText,
-                    isLoading,
-                    pdfContainerRef,
-                    pdfPagesRef,
-                    handleFileChange,
-                    handleDrop,
-                    handleDragOver,
-                    goBackToMenu,
-                };
-            }
-        }).mount('#app');
+            }).mount('#app');
     </script>
 
 </body>
