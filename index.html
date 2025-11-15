@@ -53,7 +53,7 @@
                             for (let i = 1; i <= pdf.numPages; i++) {
                                 const p = await pdf.getPage(i), vh = p.getViewport({ scale: baseScale }).height;
                                 pageHeights.push(vh);
-                                h += vh + 20;
+                                h += vh + 10;
                             }
                             return h;
                         })();
@@ -62,7 +62,7 @@
                         for (let i = 0; i < pdf.numPages; i++) {
                             const ph = document.createElement('div');
                             ph.className = 'pdf-page-placeholder';
-                            ph.style.cssText = `position:absolute;top:${currentTop + i * (pageHeights[i] + 20)}px;width:100%;height:${pageHeights[i]}px;display:flex;justify-content:center;`;
+                            ph.style.cssText = `position:absolute;top:${currentTop + i * (pageHeights[i] + 10)}px;width:100%;height:${pageHeights[i]}px;display:flex;justify-content:center;`;
                             ph.dataset.pageNum = i + 1;
                             container.appendChild(ph);
                             pageElements.push(ph);
