@@ -101,6 +101,8 @@
                             placeholder.style.top = currentTop + 'px';
                             placeholder.style.width = '100%';
                             placeholder.style.height = pageHeights[i] + 'px';
+                            placeholder.style.display = 'flex';
+                            placeholder.style.justifyContent = 'center';
                             placeholder.dataset.pageNum = i + 1;
                             container.appendChild(placeholder);
                             pageElements.push(placeholder);
@@ -143,13 +145,6 @@
                         // ページレンダリング関数
                         const renderPageIfNeeded = async (pageNum, placeholder) => {
                             if (placeholder.querySelector('canvas')) return; // 既にレンダリング済み
-
-                            // メモリチェック
-                            const memUsage = checkMemoryUsage();
-                            if (memUsage && memUsage > 85) {
-                                console.warn(`Skipping page ${pageNum} render due to high memory usage`);
-                                return;
-                            }
 
                             try {
                                 const page = await pdf.getPage(pageNum);
