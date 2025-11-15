@@ -37,6 +37,7 @@
                 const pdfUrl = ref(null);
                 const pdfContainer = ref(null);
                 const currentPdf = ref(null);
+                const isRendering = ref(false);
 
                 const revokeUrl = () => {
                     if (pdfUrl.value) {
