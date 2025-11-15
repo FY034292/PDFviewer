@@ -22,10 +22,6 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
-            <div v-if="memoryWarning"
-                class="fixed top-4 left-4 z-50 bg-red-600 text-white px-3 py-1 rounded-lg text-sm shadow-lg">
-                ⚠️ メモリ使用量が高くなっています
-            </div>
             <div class="w-full h-screen overflow-y-auto">
                 <div ref="pdfContainer" class="flex flex-col items-center gap-2 py-4"></div>
             </div>
@@ -41,7 +37,6 @@
                 const pdfUrl = ref(null);
                 const pdfContainer = ref(null);
                 const currentPdf = ref(null);
-                const memoryWarning = ref(false);
                 const renderedPages = ref(new Set());
 
                 const revokeUrl = () => {
@@ -57,7 +52,6 @@
                     }
                     currentPdf.value = null;
                     renderedPages.value.clear();
-                    memoryWarning.value = false;
                     revokeUrl();
                     currentView.value = 'menu';
                 };
@@ -125,22 +119,6 @@
                         });
 
                         pageElements.forEach(el => observer.value = observer);
-
-                        // メモリ使用量監視関数
-                        const checkMemoryUsage = () => {
-                            if ('memory' in performance) {
-                                const memInfo = performance.memory;
-                                const usedPercent = (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
-                                if (usedPercent > 80) {
-                                    memoryWarning.value = true;
-                                    console.warn(`High memory usage: ${usedPercent.toFixed(1)}%`);
-                                } else {
-                                    memoryWarning.value = false;
-                                }
-                                return usedPercent;
-                            }
-                            return null;
-                        };
 
                         // ページレンダリング関数
                         const renderPageIfNeeded = async (pageNum, placeholder) => {
@@ -218,7 +196,7 @@
                     closePdf();
                 });
 
-                return { currentView, pdfContainer, handleFileChange, closePdf, memoryWarning };
+                return { currentView, pdfContainer, handleFileChange, closePdf };
             }
         }).mount('#app');
     </script>
