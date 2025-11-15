@@ -16,12 +16,15 @@
             <input type="file" accept="application/pdf" @change="handleFileChange">
         </div>
         <div v-if="currentView === 'pdf'" class="min-h-screen bg-black">
-            <button @click="closePdf"
-                class="fixed top-4 right-4 z-50 bg-transparent backdrop-blur-sm hover:bg-black/20 text-white py-1 px-2 rounded-full shadow-lg hover:scale-110 transition-all flex items-center">
+            <button @click="closePdf" :disabled="isRendering"
+                class="fixed top-4 right-4 z-50 bg-transparent backdrop-blur-sm hover:bg-black/20 text-white py-1 px-2 rounded-full shadow-lg hover:scale-110 transition-all flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
+            <div v-if="isRendering" class="fixed inset-0 z-40 bg-black/80 flex items-center justify-center">
+                <div class="text-white text-lg">PDFを読み込み中...</div>
+            </div>
             <div class="w-full h-screen overflow-y-auto">
                 <div ref="pdfContainer" class="flex flex-col items-center gap-2 py-4"></div>
             </div>
@@ -57,6 +60,7 @@
 
                 const renderPdf = async (url) => {
                     try {
+                        isRendering.value = true;
                         const pdf = await pdfjsLib.getDocument(url).promise;
                         currentPdf.value = pdf;
                         const container = pdfContainer.value;
@@ -86,9 +90,11 @@
                                 viewport: viewport
                             }).promise;
                         }
+                        isRendering.value = false;
                     } catch (error) {
                         console.error('Error rendering PDF:', error);
                         alert('PDFの読み込みに失敗しました');
+                        isRendering.value = false;
                         closePdf();
                     }
                 };
