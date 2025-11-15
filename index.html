@@ -16,14 +16,15 @@
             <input type="file" accept="application/pdf" @change="handleFileChange">
         </div>
         <div v-if="currentView === 'pdf'" class="min-h-screen bg-black">
-            <button @click="closePdf" :disabled="isRendering"
-                class="fixed top-4 right-4 z-50 bg-transparent backdrop-blur-sm hover:bg-black/20 text-white py-1 px-2 rounded-full shadow-lg hover:scale-110 transition-all flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+            <button @click="closePdf"
+                class="fixed top-4 right-4 z-50 bg-transparent backdrop-blur-sm hover:bg-black/20 text-white py-1 px-2 rounded-full shadow-lg hover:scale-110 transition-all flex items-center">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
-            <div v-if="isRendering" class="fixed inset-0 z-40 bg-black/80 flex items-center justify-center">
-                <div class="text-white text-lg">PDFを読み込み中...</div>
+            <div v-if="memoryWarning"
+                class="fixed top-4 left-4 z-50 bg-red-600 text-white px-3 py-1 rounded-lg text-sm shadow-lg">
+                ⚠️ メモリ使用量が高くなっています
             </div>
             <div class="w-full h-screen overflow-y-auto">
                 <div ref="pdfContainer" class="flex flex-col items-center gap-2 py-4"></div>
@@ -40,7 +41,8 @@
                 const pdfUrl = ref(null);
                 const pdfContainer = ref(null);
                 const currentPdf = ref(null);
-                const isRendering = ref(false);
+                const memoryWarning = ref(false);
+                const renderedPages = ref(new Set());
 
                 const revokeUrl = () => {
                     if (pdfUrl.value) {
@@ -54,47 +56,153 @@
                         pdfContainer.value.innerHTML = '';
                     }
                     currentPdf.value = null;
+                    renderedPages.value.clear();
+                    memoryWarning.value = false;
                     revokeUrl();
                     currentView.value = 'menu';
                 };
 
                 const renderPdf = async (url) => {
                     try {
-                        isRendering.value = true;
                         const pdf = await pdfjsLib.getDocument(url).promise;
                         currentPdf.value = pdf;
                         const container = pdfContainer.value;
                         container.innerHTML = '';
 
-                        const pixelRatio = window.devicePixelRatio || 1;
+                        // モバイルデバイス向けのスケール調整
+                        const isMobile = window.innerWidth < 768;
+                        const baseScale = isMobile ? 1.0 : 1.5;
+                        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2); // 最大2倍に制限
+
+                        // ページの高さを事前に計算
+                        const pageHeights = [];
+                        let totalHeight = 0;
 
                         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                             const page = await pdf.getPage(pageNum);
-                            const viewport = page.getViewport({ scale: 2.0 });
-
-                            const canvas = document.createElement('canvas');
-                            const context = canvas.getContext('2d');
-
-                            canvas.height = viewport.height * pixelRatio;
-                            canvas.width = viewport.width * pixelRatio;
-                            canvas.style.width = viewport.width + 'px';
-                            canvas.style.height = viewport.height + 'px';
-                            canvas.className = 'max-w-full h-auto';
-
-                            context.scale(pixelRatio, pixelRatio);
-
-                            container.appendChild(canvas);
-
-                            await page.render({
-                                canvasContext: context,
-                                viewport: viewport
-                            }).promise;
+                            const viewport = page.getViewport({ scale: baseScale });
+                            const height = viewport.height;
+                            pageHeights.push(height);
+                            totalHeight += height + 20; // ギャップを含む
                         }
-                        isRendering.value = false;
+
+                        // 仮想スクロールコンテナの設定
+                        container.style.height = totalHeight + 'px';
+                        container.style.position = 'relative';
+
+                        // ページプレースホルダーを作成
+                        const pageElements = [];
+                        let currentTop = 0;
+
+                        for (let i = 0; i < pdf.numPages; i++) {
+                            const placeholder = document.createElement('div');
+                            placeholder.className = 'pdf-page-placeholder';
+                            placeholder.style.position = 'absolute';
+                            placeholder.style.top = currentTop + 'px';
+                            placeholder.style.width = '100%';
+                            placeholder.style.height = pageHeights[i] + 'px';
+                            placeholder.dataset.pageNum = i + 1;
+                            container.appendChild(placeholder);
+                            pageElements.push(placeholder);
+                            currentTop += pageHeights[i] + 20;
+                        }
+
+                        // Intersection Observerでビューポート監視
+                        const observer = new IntersectionObserver((entries) => {
+                            entries.forEach(entry => {
+                                const pageNum = parseInt(entry.target.dataset.pageNum);
+                                if (entry.isIntersecting) {
+                                    renderPageIfNeeded(pageNum, entry.target);
+                                } else {
+                                    unloadPageIfNeeded(pageNum, entry.target);
+                                }
+                            });
+                        }, {
+                            root: container.parentElement,
+                            rootMargin: '50px' // 予備領域
+                        });
+
+                        pageElements.forEach(el => observer.value = observer);
+
+                        // メモリ使用量監視関数
+                        const checkMemoryUsage = () => {
+                            if ('memory' in performance) {
+                                const memInfo = performance.memory;
+                                const usedPercent = (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100;
+                                if (usedPercent > 80) {
+                                    memoryWarning.value = true;
+                                    console.warn(`High memory usage: ${usedPercent.toFixed(1)}%`);
+                                } else {
+                                    memoryWarning.value = false;
+                                }
+                                return usedPercent;
+                            }
+                            return null;
+                        };
+
+                        // ページレンダリング関数
+                        const renderPageIfNeeded = async (pageNum, placeholder) => {
+                            if (placeholder.querySelector('canvas')) return; // 既にレンダリング済み
+
+                            // メモリチェック
+                            const memUsage = checkMemoryUsage();
+                            if (memUsage && memUsage > 85) {
+                                console.warn(`Skipping page ${pageNum} render due to high memory usage`);
+                                return;
+                            }
+
+                            try {
+                                const page = await pdf.getPage(pageNum);
+                                const viewport = page.getViewport({ scale: baseScale });
+
+                                const canvas = document.createElement('canvas');
+                                const context = canvas.getContext('2d');
+
+                                canvas.height = viewport.height * pixelRatio;
+                                canvas.width = viewport.width * pixelRatio;
+                                canvas.style.width = viewport.width + 'px';
+                                canvas.style.height = viewport.height + 'px';
+                                canvas.className = 'max-w-full h-auto shadow-lg';
+
+                                context.scale(pixelRatio, pixelRatio);
+
+                                placeholder.appendChild(canvas);
+                                renderedPages.value.add(pageNum);
+
+                                await page.render({
+                                    canvasContext: context,
+                                    viewport: viewport
+                                }).promise;
+
+                            } catch (error) {
+                                console.error(`Error rendering page ${pageNum}:`, error);
+                                if (error.name === 'QuotaExceededError') {
+                                    memoryWarning.value = true;
+                                    alert('メモリ使用量が上限に達しました。一部のページが表示されない可能性があります。');
+                                }
+                            }
+                        };
+
+                        // ページアンロード関数
+                        const unloadPageIfNeeded = (pageNum, placeholder) => {
+                            const canvas = placeholder.querySelector('canvas');
+                            if (canvas) {
+                                placeholder.removeChild(canvas);
+                                renderedPages.value.delete(pageNum);
+                                // メモリ解放を促す
+                                if (canvas.width && canvas.height) {
+                                    canvas.width = 1;
+                                    canvas.height = 1;
+                                }
+                            }
+                        };
+
+                        // 初期レンダリング（ビューポート内のページ）
+                        pageElements.forEach(el => observer.observe(el));
+
                     } catch (error) {
                         console.error('Error rendering PDF:', error);
                         alert('PDFの読み込みに失敗しました');
-                        isRendering.value = false;
                         closePdf();
                     }
                 };
@@ -115,7 +223,7 @@
                     closePdf();
                 });
 
-                return { currentView, pdfContainer, handleFileChange, closePdf };
+                return { currentView, pdfContainer, handleFileChange, closePdf, memoryWarning };
             }
         }).mount('#app');
     </script>
