@@ -29,7 +29,7 @@
     </div>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        
+
         const { createApp, ref, onUnmounted } = Vue;
         createApp({
             setup() {
@@ -37,14 +37,14 @@
                 const pdfUrl = ref(null);
                 const pdfContainer = ref(null);
                 const currentPdf = ref(null);
-                
+
                 const revokeUrl = () => {
                     if (pdfUrl.value) {
                         URL.revokeObjectURL(pdfUrl.value);
                         pdfUrl.value = null;
                     }
                 };
-                
+
                 const closePdf = () => {
                     if (pdfContainer.value) {
                         pdfContainer.value.innerHTML = '';
@@ -53,45 +53,47 @@
                     revokeUrl();
                     currentView.value = 'menu';
                 };
-                
+
                 const renderPdf = async (url) => {
                     try {
                         const pdf = await pdfjsLib.getDocument(url).promise;
                         currentPdf.value = pdf;
                         const container = pdfContainer.value;
                         container.innerHTML = '';
-                        
-                        const pixelRatio = window.devicePixelRatio || 1;
-                        
+
+                        const scale = 1.0;
+
+                        const renderPromises = [];
                         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                            const page = await pdf.getPage(pageNum);
-                            const viewport = page.getViewport({ scale: 2.0 });
-                            
-                            const canvas = document.createElement('canvas');
-                            const context = canvas.getContext('2d');
-                            
-                            canvas.height = viewport.height * pixelRatio;
-                            canvas.width = viewport.width * pixelRatio;
-                            canvas.style.width = viewport.width + 'px';
-                            canvas.style.height = viewport.height + 'px';
-                            canvas.className = 'max-w-full h-auto';
-                            
-                            context.scale(pixelRatio, pixelRatio);
-                            
-                            container.appendChild(canvas);
-                            
-                            await page.render({
-                                canvasContext: context,
-                                viewport: viewport
-                            }).promise;
+                            renderPromises.push(
+                                pdf.getPage(pageNum).then(async (page) => {
+                                    const viewport = page.getViewport({ scale });
+
+                                    const canvas = document.createElement('canvas');
+                                    const context = canvas.getContext('2d');
+
+                                    canvas.width = viewport.width;
+                                    canvas.height = viewport.height;
+                                    canvas.className = 'max-w-full h-auto';
+
+                                    container.appendChild(canvas);
+
+                                    return page.render({
+                                        canvasContext: context,
+                                        viewport: viewport
+                                    }).promise;
+                                })
+                            );
                         }
+
+                        await Promise.all(renderPromises);
                     } catch (error) {
                         console.error('Error rendering PDF:', error);
                         alert('PDFの読み込みに失敗しました');
                         closePdf();
                     }
                 };
-                
+
                 const handleFileChange = async (e) => {
                     const file = e.target.files[0];
                     if (!file) return;
@@ -99,15 +101,15 @@
                     pdfUrl.value = URL.createObjectURL(file);
                     currentView.value = 'pdf';
                     e.target.value = null;
-                    
+
                     await new Promise(resolve => setTimeout(resolve, 100));
                     await renderPdf(pdfUrl.value);
                 };
-                
+
                 onUnmounted(() => {
                     closePdf();
                 });
-                
+
                 return { currentView, pdfContainer, handleFileChange, closePdf };
             }
         }).mount('#app');
