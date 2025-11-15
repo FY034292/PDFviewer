@@ -33,149 +33,77 @@
         const { createApp, ref, onUnmounted } = Vue;
         createApp({
             setup() {
-                const currentView = ref('menu');
-                const pdfUrl = ref(null);
-                const pdfContainer = ref(null);
-                const currentPdf = ref(null);
-
-                const revokeUrl = () => {
-                    if (pdfUrl.value) {
-                        URL.revokeObjectURL(pdfUrl.value);
-                        pdfUrl.value = null;
-                    }
-                };
-
+                const currentView = ref('menu'), pdfUrl = ref(null), pdfContainer = ref(null), currentPdf = ref(null);
+                const revokeUrl = () => pdfUrl.value && (URL.revokeObjectURL(pdfUrl.value), pdfUrl.value = null);
                 const closePdf = () => {
-                    if (pdfContainer.value) {
-                        pdfContainer.value.innerHTML = '';
-                    }
+                    pdfContainer.value && (pdfContainer.value.innerHTML = '');
                     currentPdf.value = null;
                     revokeUrl();
                     currentView.value = 'menu';
                 };
-
                 const renderPdf = async (url) => {
                     try {
                         const pdf = await pdfjsLib.getDocument(url).promise;
                         currentPdf.value = pdf;
                         const container = pdfContainer.value;
                         container.innerHTML = '';
-
-                        const baseScale = 1.0;
-                        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2); // 最大2倍に制限
-
-                        // ページの高さを事前に計算
-                        const pageHeights = [];
-                        let totalHeight = 0;
-
-                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                            const page = await pdf.getPage(pageNum);
-                            const viewport = page.getViewport({ scale: baseScale });
-                            const height = viewport.height;
-                            pageHeights.push(height);
-                            totalHeight += height + 20; // ギャップを含む
-                        }
-
-                        // 仮想スクロールコンテナの設定
-                        container.style.height = totalHeight + 'px';
-                        container.style.position = 'relative';
-
-                        // ページプレースホルダーを作成
-                        const pageElements = [];
-                        let currentTop = 0;
-
-                        for (let i = 0; i < pdf.numPages; i++) {
-                            const placeholder = document.createElement('div');
-                            placeholder.className = 'pdf-page-placeholder';
-                            placeholder.style.position = 'absolute';
-                            placeholder.style.top = currentTop + 'px';
-                            placeholder.style.width = '100%';
-                            placeholder.style.height = pageHeights[i] + 'px';
-                            placeholder.style.display = 'flex';
-                            placeholder.style.justifyContent = 'center';
-                            placeholder.dataset.pageNum = i + 1;
-                            container.appendChild(placeholder);
-                            pageElements.push(placeholder);
-                            currentTop += pageHeights[i] + 20;
-                        }
-
-                        // Intersection Observerでビューポート監視
-                        const observer = new IntersectionObserver((entries) => {
-                            entries.forEach(entry => {
-                                const pageNum = parseInt(entry.target.dataset.pageNum);
-                                if (entry.isIntersecting) {
-                                    renderPageIfNeeded(pageNum, entry.target);
-                                } else {
-                                    unloadPageIfNeeded(pageNum, entry.target);
-                                }
-                            });
-                        }, {
-                            root: container.parentElement,
-                            rootMargin: '50px' // 予備領域
-                        });
-
-                        pageElements.forEach(el => observer.value = observer);
-
-                        // ページレンダリング関数
-                        const renderPageIfNeeded = async (pageNum, placeholder) => {
-                            if (placeholder.querySelector('canvas')) return; // 既にレンダリング済み
-
-                            const page = await pdf.getPage(pageNum);
-                            const viewport = page.getViewport({ scale: baseScale });
-
-                            const canvas = document.createElement('canvas');
-                            const context = canvas.getContext('2d');
-
-                            canvas.height = viewport.height * pixelRatio;
-                            canvas.width = viewport.width * pixelRatio;
-                            canvas.style.width = viewport.width + 'px';
-                            canvas.style.height = viewport.height + 'px';
-                            canvas.className = 'max-w-full h-auto';
-
-                            context.scale(pixelRatio, pixelRatio);
-
-                            placeholder.appendChild(canvas);
-
-                            await page.render({
-                                canvasContext: context,
-                                viewport: viewport
-                            }).promise;
-                        };
-
-                        // ページアンロード関数
-                        const unloadPageIfNeeded = (pageNum, placeholder) => {
-                            const canvas = placeholder.querySelector('canvas');
-                            if (canvas) {
-                                placeholder.removeChild(canvas);
+                        const baseScale = 1.0, pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+                        const pageHeights = [], totalHeight = await (async () => {
+                            let h = 0;
+                            for (let i = 1; i <= pdf.numPages; i++) {
+                                const p = await pdf.getPage(i), vh = p.getViewport({ scale: baseScale }).height;
+                                pageHeights.push(vh);
+                                h += vh + 20;
                             }
-                        };
-
-                        // 初期レンダリング（ビューポート内のページ）
+                            return h;
+                        })();
+                        container.style.cssText = `height:${totalHeight}px;position:relative;`;
+                        const pageElements = [], currentTop = 0;
+                        for (let i = 0; i < pdf.numPages; i++) {
+                            const ph = document.createElement('div');
+                            ph.className = 'pdf-page-placeholder';
+                            ph.style.cssText = `position:absolute;top:${currentTop + i * (pageHeights[i] + 20)}px;width:100%;height:${pageHeights[i]}px;display:flex;justify-content:center;`;
+                            ph.dataset.pageNum = i + 1;
+                            container.appendChild(ph);
+                            pageElements.push(ph);
+                        }
+                        const observer = new IntersectionObserver((entries) => entries.forEach(e => {
+                            const pn = parseInt(e.target.dataset.pageNum);
+                            e.isIntersecting ? renderPageIfNeeded(pn, e.target) : unloadPageIfNeeded(pn, e.target);
+                        }), { root: container.parentElement, rootMargin: '50px' });
                         pageElements.forEach(el => observer.observe(el));
-
+                        const renderPageIfNeeded = async (pn, ph) => {
+                            if (ph.querySelector('canvas')) return;
+                            const p = await pdf.getPage(pn), vp = p.getViewport({ scale: baseScale });
+                            const c = document.createElement('canvas'), ctx = c.getContext('2d');
+                            c.height = vp.height * pixelRatio;
+                            c.width = vp.width * pixelRatio;
+                            c.style.cssText = `width:${vp.width}px;height:${vp.height}px;max-width:100%;height:auto;`;
+                            ctx.scale(pixelRatio, pixelRatio);
+                            ph.appendChild(c);
+                            await p.render({ canvasContext: ctx, viewport: vp }).promise;
+                        };
+                        const unloadPageIfNeeded = (pn, ph) => {
+                            const c = ph.querySelector('canvas');
+                            c && ph.removeChild(c);
+                        };
                     } catch (error) {
                         console.error('Error rendering PDF:', error);
                         alert('PDFの読み込みに失敗しました');
                         closePdf();
                     }
                 };
-
                 const handleFileChange = async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
+                    const f = e.target.files[0];
+                    if (!f) return;
                     revokeUrl();
-                    pdfUrl.value = URL.createObjectURL(file);
+                    pdfUrl.value = URL.createObjectURL(f);
                     currentView.value = 'pdf';
                     e.target.value = null;
-
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(r => setTimeout(r, 100));
                     await renderPdf(pdfUrl.value);
                 };
-
-                onUnmounted(() => {
-                    closePdf();
-                });
-
+                onUnmounted(closePdf);
                 return { currentView, pdfContainer, handleFileChange, closePdf };
             }
         }).mount('#app');
