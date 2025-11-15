@@ -61,32 +61,30 @@
                         const container = pdfContainer.value;
                         container.innerHTML = '';
 
-                        const scale = 3.0;
+                        const pixelRatio = window.devicePixelRatio || 1;
 
-                        const renderPromises = [];
                         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                            renderPromises.push(
-                                pdf.getPage(pageNum).then(async (page) => {
-                                    const viewport = page.getViewport({ scale });
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 2.0 });
 
-                                    const canvas = document.createElement('canvas');
-                                    const context = canvas.getContext('2d');
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
 
-                                    canvas.width = viewport.width;
-                                    canvas.height = viewport.height;
-                                    canvas.className = 'max-w-full h-auto';
+                            canvas.height = viewport.height * pixelRatio;
+                            canvas.width = viewport.width * pixelRatio;
+                            canvas.style.width = viewport.width + 'px';
+                            canvas.style.height = viewport.height + 'px';
+                            canvas.className = 'max-w-full h-auto';
 
-                                    container.appendChild(canvas);
+                            context.scale(pixelRatio, pixelRatio);
 
-                                    return page.render({
-                                        canvasContext: context,
-                                        viewport: viewport
-                                    }).promise;
-                                })
-                            );
+                            container.appendChild(canvas);
+
+                            await page.render({
+                                canvasContext: context,
+                                viewport: viewport
+                            }).promise;
                         }
-
-                        await Promise.all(renderPromises);
                     } catch (error) {
                         console.error('Error rendering PDF:', error);
                         alert('PDFの読み込みに失敗しました');
