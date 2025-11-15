@@ -37,7 +37,6 @@
                 const pdfUrl = ref(null);
                 const pdfContainer = ref(null);
                 const currentPdf = ref(null);
-                const renderedPages = ref(new Set());
 
                 const revokeUrl = () => {
                     if (pdfUrl.value) {
@@ -51,7 +50,6 @@
                         pdfContainer.value.innerHTML = '';
                     }
                     currentPdf.value = null;
-                    renderedPages.value.clear();
                     revokeUrl();
                     currentView.value = 'menu';
                 };
@@ -63,9 +61,7 @@
                         const container = pdfContainer.value;
                         container.innerHTML = '';
 
-                        // モバイルデバイス向けのスケール調整
-                        const isMobile = window.innerWidth < 768;
-                        const baseScale = isMobile ? 1.0 : 1.5;
+                        const baseScale = 1.0;
                         const pixelRatio = Math.min(window.devicePixelRatio || 1, 2); // 最大2倍に制限
 
                         // ページの高さを事前に計算
@@ -124,36 +120,26 @@
                         const renderPageIfNeeded = async (pageNum, placeholder) => {
                             if (placeholder.querySelector('canvas')) return; // 既にレンダリング済み
 
-                            try {
-                                const page = await pdf.getPage(pageNum);
-                                const viewport = page.getViewport({ scale: baseScale });
+                            const page = await pdf.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: baseScale });
 
-                                const canvas = document.createElement('canvas');
-                                const context = canvas.getContext('2d');
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
 
-                                canvas.height = viewport.height * pixelRatio;
-                                canvas.width = viewport.width * pixelRatio;
-                                canvas.style.width = viewport.width + 'px';
-                                canvas.style.height = viewport.height + 'px';
-                                canvas.className = 'max-w-full h-auto shadow-lg';
+                            canvas.height = viewport.height * pixelRatio;
+                            canvas.width = viewport.width * pixelRatio;
+                            canvas.style.width = viewport.width + 'px';
+                            canvas.style.height = viewport.height + 'px';
+                            canvas.className = 'max-w-full h-auto';
 
-                                context.scale(pixelRatio, pixelRatio);
+                            context.scale(pixelRatio, pixelRatio);
 
-                                placeholder.appendChild(canvas);
-                                renderedPages.value.add(pageNum);
+                            placeholder.appendChild(canvas);
 
-                                await page.render({
-                                    canvasContext: context,
-                                    viewport: viewport
-                                }).promise;
-
-                            } catch (error) {
-                                console.error(`Error rendering page ${pageNum}:`, error);
-                                if (error.name === 'QuotaExceededError') {
-                                    memoryWarning.value = true;
-                                    alert('メモリ使用量が上限に達しました。一部のページが表示されない可能性があります。');
-                                }
-                            }
+                            await page.render({
+                                canvasContext: context,
+                                viewport: viewport
+                            }).promise;
                         };
 
                         // ページアンロード関数
@@ -161,12 +147,6 @@
                             const canvas = placeholder.querySelector('canvas');
                             if (canvas) {
                                 placeholder.removeChild(canvas);
-                                renderedPages.value.delete(pageNum);
-                                // メモリ解放を促す
-                                if (canvas.width && canvas.height) {
-                                    canvas.width = 1;
-                                    canvas.height = 1;
-                                }
                             }
                         };
 
